@@ -1,16 +1,15 @@
+from sqlalchemy.orm import Session
 from app.repository import book_repo
+from uuid import UUID
 
-async def list_books(status=None, author=None, sort_by=None):
-    books = await book_repo.get_books_from_db()
+async def list_books(db: Session, limit: int, offset: int, status: str = None, author: str = None, sort_by: str = None):
+    return await book_repo.get_books_from_db(db, limit, offset, status, author, sort_by)
 
-    if status:
-        books = [b for b in books if b["status"] == status]
-    if author:
-        books = [b for b in books if author.lower() in b["author"].lower()]
+async def get_book(db: Session, book_id: UUID):
+    return await book_repo.get_book_by_id(db, book_id)
 
-    if sort_by == "title":
-        books = sorted(books, key=lambda x: x["title"])
-    elif sort_by == "year":
-        books = sorted(books, key=lambda x: x["year"])
+async def create_book(db: Session, book_data: dict):
+    return await book_repo.add_book_to_db(db, book_data)
 
-    return books
+async def delete_book(db: Session, book_id: UUID):
+    return await book_repo.delete_book_from_db(db, book_id)
