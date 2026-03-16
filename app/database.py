@@ -1,18 +1,15 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker
+import motor.motor_asyncio
 import os
 
-SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://user:password@localhost:5432/library")
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+MONGO_URL = os.getenv("MONGO_URL", "mongodb://mongo_admin:password@db:27017")
 
-Base = declarative_base()
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URL)
+
+
+database = client.library_db
+
+
+def get_books_collection():
+    return database.get_collection("books")

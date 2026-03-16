@@ -1,25 +1,26 @@
-from pydantic import BaseModel, Field
-from uuid import UUID, uuid4
-from typing import List, Optional
-from enum import Enum
+from pydantic import BaseModel, Field, ConfigDict
+from pydantic_mongo import PydanticObjectId
+from typing import Optional, List
 
-class BookStatus(str, Enum):
-    AVAILABLE = "наявна"
-    BORROWED = "видана"
 
 class BookBase(BaseModel):
-    title: str = Field(..., min_length=1, json_schema_extra={"example": "All Quiet on the Western Front"})
-    author: str = Field(..., min_length=1, json_schema_extra={"example": "Erich Maria Remarque"})
-    description: Optional[str] = Field(None, json_schema_extra={"example": "depicting the extreme..."})
-    status: BookStatus = BookStatus.AVAILABLE
-    year: int = Field(..., gt=0, le=2026)
+    title: str
+    author: str
+    description: Optional[str] = None
+    year: int
+
 
 class BookCreate(BookBase):
     pass
 
+
 class Book(BookBase):
-    id: UUID = Field(default_factory=uuid4)
+
+    id: Optional[PydanticObjectId] = Field(None, alias="_id")
+
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
+
 
 class PaginatedBooksResponse(BaseModel):
     items: List[Book]
-    next_cursor: Optional[UUID] = None
+    total: int

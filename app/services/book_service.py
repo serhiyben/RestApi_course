@@ -1,23 +1,19 @@
-from sqlalchemy.orm import Session
 from app.repository import book_repo
-from uuid import UUID
-from typing import Optional
 
-async def list_books_cursor(
-    db: Session, 
-    limit: int, 
-    cursor: Optional[UUID] = None, 
-    status: Optional[str] = None, 
-    author: Optional[str] = None
-):
-    
-    return await book_repo.get_books_cursor(db, limit, cursor, status, author)
+# Ми прибрали імпорт Session та UUID, бо в Монго вони не потрібні в такому вигляді
 
-async def get_book(db: Session, book_id: UUID):
-    return await book_repo.get_book_by_id(db, book_id)
+async def get_all_books(collection, limit: int, offset: int):
+    """Сервіс для отримання списку книг з пагінацією Limit-Offset"""
+    return await book_repo.get_books(collection, limit, offset)
 
-async def create_book(db: Session, book_data: dict):
-    return await book_repo.create_book(db, book_data)
+async def get_book(collection, book_id: str):
+    """Сервіс для пошуку однієї книги за її рядковим ID"""
+    return await book_repo.get_book_by_id(collection, book_id)
 
-async def delete_book(db: Session, book_id: UUID):
-    return await book_repo.delete_book(db, book_id)
+async def create_book(collection, book_data: dict):
+    """Сервіс для створення нової книги"""
+    return await book_repo.create_book(collection, book_data)
+
+async def delete_book(collection, book_id: str):
+    """Сервіс для видалення книги"""
+    return await book_repo.delete_book(collection, book_id)

@@ -1,49 +1,29 @@
-from sqlalchemy.orm import Session
-from app.models.book import BookModel as Book
-from uuid import UUID
-from typing import Optional
+from pydantic_mongo import PydanticObjectId
 
 
-async def get_books_cursor(
-    db: Session,
-    limit: int,
-    cursor: Optional[UUID] = None,
-    status: Optional[str] = None,
-    author: Optional[str] = None,
-):
-    query = db.query(Book)
+async def get_books(collection, limit: int, offset: int):
 
-    if status:
-        query = query.filter(Book.status == status)
-    if author:
-        query = query.filter(Book.author.ilike(f"%{author}%"))
+    total = await collection.count_documents({})
 
-    if cursor:
-        query = query.filter(Book.id > cursor)
-
-    books = query.order_by(Book.id).limit(limit).all()
-
-    next_cursor = books[-1].id if len(books) == limit else None
-
-    return books, next_cursor
+    cursor = collection.find({}).skip(offset).limit(limit)
+    books = await cursor.to_list(length=limit)
+    return books, total
 
 
-async def get_book_by_id(db: Session, book_id: UUID):
-    return db.query(Book).filter(Book.id == book_id).first()
+async def get_book_by_id(collection, book_id: str):
+
+    return await collection.find_one({"_id": PydanticObjectId(book_id)})
 
 
-async def create_book(db: Session, book_data: dict):
-    db_book = Book(**book_data)
-    db.add(db_book)
-    db.commit()
-    db.refresh(db_book)
-    return db_book
+async def create_book(collection, book_data: dict):
+
+    result = await collection.insert_one(book_data)
+
+    return await collection.find_one({"_id": result.inserted_id})
 
 
-async def delete_book(db: Session, book_id: UUID):
-    book = db.query(Book).filter(Book.id == book_id).first()
-    if book:
-        db.delete(book)
-        db.commit()
-        return True
-    return False
+async def delete_book(collection, book_id: str):
+
+    result = await collection.delete_one({"_id": PydanticObjectId(book_id)})
+
+    return result.deleted_count > 0
