@@ -5,6 +5,7 @@ pydantic-mongo==2.3.0
 pydantic==2.12.5
 httpx==0.28.1
 pytest==9.0.2
+pytest-asyncio
 python-dotenv==1.0.1
 anyio==4.12.1
 click==8.3.1
