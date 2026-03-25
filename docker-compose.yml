@@ -7,7 +7,6 @@ services:
     container_name: library_mongo
     restart: always
     environment:
-      
       MONGO_INITDB_ROOT_USERNAME: mongo_admin
       MONGO_INITDB_ROOT_PASSWORD: password
     ports:
@@ -15,19 +14,15 @@ services:
     volumes:
       - mongo_data:/data/db
 
-  
   app:
     build: .
     container_name: library_app
-    
     volumes:
       - .:/app
     ports:
-      - "8000:8000"
+      - "5000:5000"
     environment:
-      
-      
-      MONGO_URL: mongodb://mongo_admin:password@db:27017
+      MONGO_URI: mongodb://mongo_admin:password@db:27017/library_db?authSource=admin
     depends_on:
       - db
 

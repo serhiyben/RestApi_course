@@ -1,68 +1,60 @@
 import pytest
-from httpx import ASGITransport, AsyncClient
 from app.main import app
-from app.database import get_books_collection
-import motor.motor_asyncio
-import os
+from app.database import books_collection
 
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://mongo_admin:password@db:27017")
-
-# МАГІЯ ТУТ: Створюємо нове ізольоване підключення для тестів
-async def override_get_collection():
-    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URL)
-    try:
-        # Можемо навіть використовувати окрему базу для тестів, щоб не смітити в основній
-        yield client.library_test_db.get_collection("books")
-    finally:
-        client.close() # Закриваємо з'єднання після кожного запиту
-
-# Підміняємо оригінальну функцію бази на нашу тестову
-app.dependency_overrides[get_books_collection] = override_get_collection
-
+# Створюємо тестовий клієнт Flask
 @pytest.fixture
-async def async_client():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
+def client():
+    app.config['TESTING'] = True
+    with app.test_client() as client:
+        yield client
 
-@pytest.mark.asyncio
-async def test_create_book_mongo(async_client):
-    response = await async_client.post("/books/", json={
+# Очищаємо базу перед кожним тестом, щоб вони були незалежними
+@pytest.fixture(autouse=True)
+def clean_db():
+    books_collection.delete_many({})
+    yield
+
+def test_create_book(client):
+    response = client.post("/books", json={
         "title": "The Martian",
         "author": "Andy Weir",
-        "year": 2011,
-        "description": "Survival on Mars"
+        "year": 2011
     })
     assert response.status_code == 201
-    assert "_id" in response.json()
+    data = response.get_json()
+    assert data["title"] == "The Martian"
+    assert "_id" in data
 
-@pytest.mark.asyncio
-async def test_get_books_pagination_mongo(async_client):
-    response = await async_client.get("/books/", params={"limit": 1, "offset": 0})
+def test_get_books(client):
+    # Спочатку додаємо книгу
+    client.post("/books", json={"title": "Book 1", "author": "A1", "year": 2020})
+    
+    # Потім отримуємо список
+    response = client.get("/books")
     assert response.status_code == 200
-    data = response.json()
-    assert "items" in data
-    assert "total" in data
+    data = response.get_json()
+    assert type(data) == list
+    assert len(data) == 1
 
-@pytest.mark.asyncio
-async def test_get_book_by_id_mongo(async_client):
-    create_res = await async_client.post("/books/", json={
+def test_get_book_by_id(client):
+    create_res = client.post("/books", json={
         "title": "Unique Book", "author": "Auth", "year": 2024
     })
-    book_id = create_res.json()["_id"]
-    
-    response = await async_client.get(f"/books/{book_id}")
-    assert response.status_code == 200
-    assert response.json()["title"] == "Unique Book"
+    book_id = create_res.get_json()["_id"]
 
-@pytest.mark.asyncio
-async def test_delete_book_mongo(async_client):
-    create_res = await async_client.post("/books/", json={
+    response = client.get(f"/books/{book_id}")
+    assert response.status_code == 200
+    assert response.get_json()["title"] == "Unique Book"
+
+def test_delete_book(client):
+    create_res = client.post("/books", json={
         "title": "To Delete", "author": "Auth", "year": 2024
     })
-    book_id = create_res.json()["_id"]
-    
-    del_res = await async_client.delete(f"/books/{book_id}")
+    book_id = create_res.get_json()["_id"]
+
+    del_res = client.delete(f"/books/{book_id}")
     assert del_res.status_code == 204
     
-    get_res = await async_client.get(f"/books/{book_id}")
+    get_res = client.get(f"/books/{book_id}")
     assert get_res.status_code == 404
