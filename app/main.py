@@ -1,7 +1,7 @@
 from flask import Flask, request
 from flask_restful import Api, Resource
 from flasgger import Swagger
-from database import books_collection
+from app.database import books_collection
 from bson.objectid import ObjectId
 
 app = Flask(__name__)

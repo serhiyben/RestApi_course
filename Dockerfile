@@ -8,4 +8,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Flask запускається через звичайний python
-CMD ["python", "app/main.py"]
+CMD ["python", "-m", "app.main"]
