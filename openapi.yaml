@@ -1,0 +1,105 @@
+openapi: 3.0.3
+info:
+  title: Library Mock API
+  version: 1.0.0
+  description: Повний Mock сервер для нашої бібліотеки з використанням Stoplight Prism
+
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+paths:
+  /register:
+    post:
+      summary: Реєстрація нового користувача
+      responses:
+        '201':
+          description: Користувач успішно створений
+          content:
+            application/json:
+              example:
+                username: "student_pnu"
+                message: "User registered successfully"
+
+  /token:
+    post:
+      summary: Логін та отримання JWT токенів
+      responses:
+        '200':
+          description: Успішна авторизація
+          content:
+            application/json:
+              example:
+                access_token: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mocked_token"
+                refresh_token: "mocked_refresh_token_7days"
+                token_type: "bearer"
+
+  /books/public:
+    get:
+      summary: Отримати публічний список книг (Анонімно)
+      responses:
+        '200':
+          description: Список книг (ліміт 2 зап/хв)
+          content:
+            application/json:
+              example:
+                requested_by: "anonymous"
+                items:
+                  - _id: "64a2b3c4d5e6f7a8b9c0d1e2"
+                    title: "1984"
+                    author: "George Orwell"
+                    year: 1949
+
+  /books/:
+    get:
+      summary: Отримати всі книги (Тільки для авторизованих)
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Повний список книг (ліміт 10 зап/хв)
+          content:
+            application/json:
+              example:
+                requested_by: "student_pnu"
+                items:
+                  - _id: "64a2b3c4d5e6f7a8b9c0d1e2"
+                    title: "1984"
+                    author: "George Orwell"
+                  - _id: "64a2b3c4d5e6f7a8b9c0d1e5"
+                    title: "Python Crash Course"
+                    author: "Eric Matthes"
+                    
+    post:
+      summary: Додати нову книгу
+      security:
+        - bearerAuth: []
+      responses:
+        '201':
+          description: Книгу успішно створено
+          content:
+            application/json:
+              example:
+                _id: "77b2b3c4d5e6f7a8b9c0ffff"
+                title: "Clean Code"
+                author: "Robert C. Martin"
+                year: 2008
+
+  /books/{book_id}:
+    delete:
+      summary: Видалити книгу за ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: book_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Книгу успішно видалено (No Content)

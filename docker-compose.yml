@@ -37,5 +37,14 @@ services:
     ports:
       - "6379:6379"
 
+  prism:
+    image: stoplight/prism:latest
+    container_name: library_mock_api
+    ports:
+      - "4010:4010"
+    volumes:
+      - ./openapi.yaml:/tmp/openapi.yaml
+    command: mock -m false  -h 0.0.0.0 /tmp/openapi.yaml
+
 volumes:
   mongo_data:
