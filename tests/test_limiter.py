@@ -4,7 +4,7 @@ from unittest.mock import patch, AsyncMock
 from app.main import app
 from app.auth import get_current_user
 
-# МАГІЧНА ФІКСТУРА З 6-Ї ЛАБИ (Тримає один Event Loop для бази даних)
+
 @pytest.fixture(scope="module")
 def client():
     with TestClient(app) as c:
