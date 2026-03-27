@@ -1,36 +1,65 @@
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from bson import ObjectId
 from app.database import get_books_collection
-from app.schemas.book import Book, BookCreate, PaginatedBooksResponse
-from app.repository import book_repo
+from app.auth import get_current_user
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
-@router.get("/", response_model=PaginatedBooksResponse)
-async def list_books(
-    limit: int = Query(10, ge=1, le=100),
-    offset: int = Query(0, ge=0),
-    collection = Depends(get_books_collection)
+# Допоміжна функція, щоб MongoDB ObjectId не ламав JSON
+def serialize_mongo_doc(doc) -> dict:
+    if doc:
+        doc["_id"] = str(doc["_id"])
+    return doc
+
+@router.get("/")
+async def get_all_books(
+    limit: int = 10, 
+    offset: int = 0, 
+    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
 ):
-    """Отримання списку книг з MongoDB (Limit-Offset)"""
-    books, total = await book_repo.get_books(collection, limit, offset)
-    return {"items": books, "total": total}
+    books_col = get_books_collection()
+    cursor = books_col.find().skip(offset).limit(limit)
+    books = await cursor.to_list(length=limit)
+    
+    return {
+        "requested_by": current_user,  # Показуємо, який юзер зробив запит
+        "items": [serialize_mongo_doc(book) for book in books]
+    }
 
-@router.get("/{book_id}", response_model=Book)
-async def get_book(book_id: str, collection = Depends(get_books_collection)):
-    """Пошук книги за її ObjectID"""
-    book = await book_repo.get_book_by_id(collection, book_id)
-    if not book:
-        raise HTTPException(status_code=404, detail="Книгу не знайдено")
-    return book
+@router.post("/", status_code=status.HTTP_201_CREATED)
+async def create_book(
+    book_data: dict, 
+    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
+):
+    books_col = get_books_collection()
+    result = await books_col.insert_one(book_data)
+    new_book = await books_col.find_one({"_id": result.inserted_id})
+    return serialize_mongo_doc(new_book)
 
-@router.post("/", response_model=Book, status_code=status.HTTP_201_CREATED)
-async def add_book(book: BookCreate, collection = Depends(get_books_collection)):
-    """Додавання книги в MongoDB"""
-    return await book_repo.create_book(collection, book.model_dump())
+@router.get("/{book_id}")
+async def get_book_by_id(
+    book_id: str, 
+    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
+):
+    books_col = get_books_collection()
+    if not ObjectId.is_valid(book_id):
+        raise HTTPException(status_code=400, detail="Invalid book ID format")
+        
+    book = await books_col.find_one({"_id": ObjectId(book_id)})
+    if book:
+        return serialize_mongo_doc(book)
+    raise HTTPException(status_code=404, detail="Book not found")
 
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_book(book_id: str, collection = Depends(get_books_collection)):
-    """Видалення книги за її ObjectID"""
-    if not await book_repo.delete_book(collection, book_id):
-        raise HTTPException(status_code=404, detail="Книгу не знайдено для видалення")
-    return None
+async def delete_book(
+    book_id: str, 
+    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
+):
+    books_col = get_books_collection()
+    if not ObjectId.is_valid(book_id):
+        raise HTTPException(status_code=400, detail="Invalid book ID format")
+        
+    result = await books_col.delete_one({"_id": ObjectId(book_id)})
+    if result.deleted_count == 1:
+        return None
+    raise HTTPException(status_code=404, detail="Book not found")

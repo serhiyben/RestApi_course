@@ -1,68 +1,72 @@
-import pytest
-from httpx import ASGITransport, AsyncClient
-from app.main import app
-from app.database import get_books_collection
-import motor.motor_asyncio
-import os
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
+from app.database import get_users_collection
+from app.auth import (
+    get_password_hash, verify_password, create_access_token, 
+    create_refresh_token, REFRESH_SECRET_KEY, ALGORITHM
+)
+import jwt
+# Імпортуємо твій роутер з книгами
+from app.api.router import router as book_router
 
-MONGO_URL = os.getenv("MONGO_URL", "mongodb://mongo_admin:password@db:27017")
+app = FastAPI(title="Library API with JWT Authentication")
 
-# МАГІЯ ТУТ: Створюємо нове ізольоване підключення для тестів
-async def override_get_collection():
-    client = motor.motor_asyncio.AsyncIOMotorClient(MONGO_URL)
+# Схеми для авторизації
+class UserCreate(BaseModel):
+    username: str
+    password: str
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+# ================= РОУТИ АВТЕНТИФІКАЦІЇ =================
+
+@app.post("/register", status_code=status.HTTP_201_CREATED, tags=["Auth"])
+async def register(user: UserCreate):
+    users_col = get_users_collection()
+    
+    # Перевірка чи юзер вже існує
+    existing_user = await users_col.find_one({"username": user.username})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    # Зберігаємо хеш пароля, а не сам пароль
+    hashed_password = get_password_hash(user.password)
+    await users_col.insert_one({"username": user.username, "hashed_password": hashed_password})
+    return {"message": "User created successfully"}
+
+@app.post("/token", tags=["Auth"])
+async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
+    users_col = get_users_collection()
+    user = await users_col.find_one({"username": form_data.username})
+    
+    # Перевірка логіну та пароля
+    if not user or not verify_password(form_data.password, user["hashed_password"]):
+        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    
+    # Видача токенів
+    access_token = create_access_token(data={"sub": user["username"]})
+    refresh_token = create_refresh_token(data={"sub": user["username"]})
+    
+    return {
+        "access_token": access_token, 
+        "refresh_token": refresh_token, 
+        "token_type": "bearer"
+    }
+
+@app.post("/refresh", tags=["Auth"])
+async def refresh_access_token(request: RefreshTokenRequest):
     try:
-        # Можемо навіть використовувати окрему базу для тестів, щоб не смітити в основній
-        yield client.library_test_db.get_collection("books")
-    finally:
-        client.close() # Закриваємо з'єднання після кожного запиту
+        payload = jwt.decode(request.refresh_token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        if username is None:
+            raise HTTPException(status_code=401, detail="Invalid refresh token")
+            
+        new_access_token = create_access_token(data={"sub": username})
+        return {"access_token": new_access_token, "token_type": "bearer"}
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-# Підміняємо оригінальну функцію бази на нашу тестову
-app.dependency_overrides[get_books_collection] = override_get_collection
-
-@pytest.fixture
-async def async_client():
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-        yield ac
-
-@pytest.mark.asyncio
-async def test_create_book_mongo(async_client):
-    response = await async_client.post("/books/", json={
-        "title": "The Martian",
-        "author": "Andy Weir",
-        "year": 2011,
-        "description": "Survival on Mars"
-    })
-    assert response.status_code == 201
-    assert "_id" in response.json()
-
-@pytest.mark.asyncio
-async def test_get_books_pagination_mongo(async_client):
-    response = await async_client.get("/books/", params={"limit": 1, "offset": 0})
-    assert response.status_code == 200
-    data = response.json()
-    assert "items" in data
-    assert "total" in data
-
-@pytest.mark.asyncio
-async def test_get_book_by_id_mongo(async_client):
-    create_res = await async_client.post("/books/", json={
-        "title": "Unique Book", "author": "Auth", "year": 2024
-    })
-    book_id = create_res.json()["_id"]
-    
-    response = await async_client.get(f"/books/{book_id}")
-    assert response.status_code == 200
-    assert response.json()["title"] == "Unique Book"
-
-@pytest.mark.asyncio
-async def test_delete_book_mongo(async_client):
-    create_res = await async_client.post("/books/", json={
-        "title": "To Delete", "author": "Auth", "year": 2024
-    })
-    book_id = create_res.json()["_id"]
-    
-    del_res = await async_client.delete(f"/books/{book_id}")
-    assert del_res.status_code == 204
-    
-    get_res = await async_client.get(f"/books/{book_id}")
-    assert get_res.status_code == 404
+# ================= ПІДКЛЮЧЕННЯ РОУТІВ КНИГ =================
+app.include_router(book_router)

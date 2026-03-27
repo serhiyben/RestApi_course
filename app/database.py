@@ -16,3 +16,8 @@ def get_books_collection():
     client = get_db_client()
     database = client.library_db
     return database.get_collection("books")
+    
+def get_users_collection():
+    client = get_db_client()
+    database = client.library_db
+    return database.get_collection("users")
