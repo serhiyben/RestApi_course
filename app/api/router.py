@@ -1,35 +1,63 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request  
 from bson import ObjectId
 from app.database import get_books_collection
 from app.auth import get_current_user
+from app.limiter import rate_limit
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
-# Допоміжна функція, щоб MongoDB ObjectId не ламав JSON
+
 def serialize_mongo_doc(doc) -> dict:
     if doc:
         doc["_id"] = str(doc["_id"])
     return doc
 
-@router.get("/")
-async def get_all_books(
+
+# ================= АНОНІМНИЙ РОУТ (Ліміт: 2 зап/хв) =================
+@router.get("/public")
+async def get_public_books(
+    request: Request,
     limit: int = 10, 
-    offset: int = 0, 
-    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
+    offset: int = 0
 ):
+    """Публічний ендпоінт для всіх (перевірка анонімного ліміту з пагінацією)"""
+    # Передаємо user_id=None, бо юзер не авторизований
+    await rate_limit(request, user_id=None)
+    
     books_col = get_books_collection()
     cursor = books_col.find().skip(offset).limit(limit)
     books = await cursor.to_list(length=limit)
     
     return {
-        "requested_by": current_user,  # Показуємо, який юзер зробив запит
+        "requested_by": "anonymous", # Вказуємо, що це анонімний запит
         "items": [serialize_mongo_doc(book) for book in books]
     }
+
+# ================= АВТОРИЗОВАНИЙ РОУТ (Ліміт: 10 зап/хв) =================
+@router.get("/")
+async def get_all_books(
+    request: Request,                                
+    limit: int = 10, 
+    offset: int = 0, 
+    current_user: str = Depends(get_current_user)
+):
+    """Захищений ендпоінт (перевірка авторизованого ліміту)"""
+    await rate_limit(request, user_id=current_user)
+    
+    books_col = get_books_collection()
+    cursor = books_col.find().skip(offset).limit(limit)
+    books = await cursor.to_list(length=limit)
+    
+    return {
+        "requested_by": current_user,
+        "items": [serialize_mongo_doc(book) for book in books]
+    }
+
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
 async def create_book(
     book_data: dict, 
-    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
+    current_user: str = Depends(get_current_user)  
 ):
     books_col = get_books_collection()
     result = await books_col.insert_one(book_data)
@@ -39,7 +67,7 @@ async def create_book(
 @router.get("/{book_id}")
 async def get_book_by_id(
     book_id: str, 
-    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
+    current_user: str = Depends(get_current_user)  
 ):
     books_col = get_books_collection()
     if not ObjectId.is_valid(book_id):
@@ -53,7 +81,7 @@ async def get_book_by_id(
 @router.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_book(
     book_id: str, 
-    current_user: str = Depends(get_current_user)  # <--- ЗАХИСТ
+    current_user: str = Depends(get_current_user)  
 ):
     books_col = get_books_collection()
     if not ObjectId.is_valid(book_id):
