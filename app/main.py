@@ -61,7 +61,6 @@ async def refresh_access_token(request: RefreshTokenRequest):
     except Exception:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-# ================= ПІДКЛЮЧЕННЯ РОУТІВ КНИГ =================
 
 # ================= РОУТИ КОРИСТУВАЧА =================
 
@@ -76,5 +75,7 @@ async def delete_user_me(current_user: str = Depends(get_current_user)):
     users_col = get_users_collection()
     await users_col.delete_one({"username": current_user})
     return None
+
+# ================= ПІДКЛЮЧЕННЯ РОУТІВ КНИГ =================
 
 app.include_router(books_router)

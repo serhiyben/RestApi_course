@@ -1,72 +1,109 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordRequestForm
-from pydantic import BaseModel
-from app.database import get_users_collection
-from app.auth import (
-    get_password_hash, verify_password, create_access_token, 
-    create_refresh_token, REFRESH_SECRET_KEY, ALGORITHM
-)
-import jwt
-# Імпортуємо твій роутер з книгами
-from app.api.router import router as book_router
+import pytest
+from fastapi.testclient import TestClient
+from app.main import app
 
-app = FastAPI(title="Library API with JWT Authentication")
+# Глобальні змінні для стану тестів
+TEST_USER = {"username": "test_auto_user", "password": "super_password_123"}
+AUTH_HEADERS = {}
 
-# Схеми для авторизації
-class UserCreate(BaseModel):
-    username: str
-    password: str
 
-class RefreshTokenRequest(BaseModel):
-    refresh_token: str
+@pytest.fixture(scope="module")
+def client():
+    with TestClient(app) as c:
+        yield c
 
-# ================= РОУТИ АВТЕНТИФІКАЦІЇ =================
 
-@app.post("/register", status_code=status.HTTP_201_CREATED, tags=["Auth"])
-async def register(user: UserCreate):
-    users_col = get_users_collection()
+def test_authentication_flow(client):
+    """Тестуємо реєстрацію, логін та рефреш токена"""
     
-    # Перевірка чи юзер вже існує
-    existing_user = await users_col.find_one({"username": user.username})
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Username already registered")
-    
-    # Зберігаємо хеш пароля, а не сам пароль
-    hashed_password = get_password_hash(user.password)
-    await users_col.insert_one({"username": user.username, "hashed_password": hashed_password})
-    return {"message": "User created successfully"}
+    # 1. Реєстрація
+    res_reg = client.post("/register", json=TEST_USER)
+    assert res_reg.status_code in [201, 400]
 
-@app.post("/token", tags=["Auth"])
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    users_col = get_users_collection()
-    user = await users_col.find_one({"username": form_data.username})
+    # 2. Логін
+    res_login = client.post("/token", data={
+        "username": TEST_USER["username"], 
+        "password": TEST_USER["password"]
+    })
+    assert res_login.status_code == 200
+    tokens = res_login.json()
     
-    # Перевірка логіну та пароля
-    if not user or not verify_password(form_data.password, user["hashed_password"]):
-        raise HTTPException(status_code=401, detail="Incorrect username or password")
+    # Зберігаємо токен
+    AUTH_HEADERS["Authorization"] = f"Bearer {tokens['access_token']}"
+
+    # 3. Перевірка профілю (/users/me)
+    res_me = client.get("/users/me", headers=AUTH_HEADERS)
+    assert res_me.status_code == 200
+    assert res_me.json()["username"] == TEST_USER["username"]
+
+    # 4. Перевірка рефрешу
+    res_refresh = client.post("/refresh", json={"refresh_token": tokens["refresh_token"]})
+    assert res_refresh.status_code == 200
+
+
+def test_protected_books_flow(client):
+    """Тестуємо CRUD операції з книгами, використовуючи токен"""
     
-    # Видача токенів
-    access_token = create_access_token(data={"sub": user["username"]})
-    refresh_token = create_refresh_token(data={"sub": user["username"]})
-    
-    return {
-        "access_token": access_token, 
-        "refresh_token": refresh_token, 
-        "token_type": "bearer"
+    # 1. Спроба доступу без токена
+    res_unauth = client.get("/books/")
+    assert res_unauth.status_code == 401
+
+    # 2. Створення книги з токеном
+    book_data = {
+        "title": "JWT Protected Book", 
+        "author": "Pytest Bot", 
+        "year": 2026
     }
+    res_create = client.post("/books/", json=book_data, headers=AUTH_HEADERS)
+    assert res_create.status_code == 201
+    book_id = res_create.json()["_id"]
 
-@app.post("/refresh", tags=["Auth"])
-async def refresh_access_token(request: RefreshTokenRequest):
-    try:
-        payload = jwt.decode(request.refresh_token, REFRESH_SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise HTTPException(status_code=401, detail="Invalid refresh token")
-            
-        new_access_token = create_access_token(data={"sub": username})
-        return {"access_token": new_access_token, "token_type": "bearer"}
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    # 3. Отримання списку книг
+    res_get = client.get("/books/", headers=AUTH_HEADERS)
+    assert res_get.status_code == 200
+    assert "items" in res_get.json()
+    
+    # 4. Отримання однієї книги
+    res_get_one = client.get(f"/books/{book_id}", headers=AUTH_HEADERS)
+    assert res_get_one.status_code == 200
 
-# ================= ПІДКЛЮЧЕННЯ РОУТІВ КНИГ =================
-app.include_router(book_router)
+    # 5. Видалення книги
+    res_delete = client.delete(f"/books/{book_id}", headers=AUTH_HEADERS)
+    assert res_delete.status_code == 204
+
+def test_negative_auth_flows(client):
+    """Тестуємо обробку помилок при авторизації"""
+    
+    # 1. Спроба зареєструвати юзера, який ВЖЕ існує (створений у першому тесті)
+    res_dup_reg = client.post("/register", json=TEST_USER)
+    assert res_dup_reg.status_code == 400
+    assert "already registered" in res_dup_reg.json()["detail"]
+
+    # 2. Логін з неправильним паролем
+    res_bad_login = client.post("/token", data={
+        "username": TEST_USER["username"], 
+        "password": "wrong_password_123!"
+    })
+    assert res_bad_login.status_code == 401
+
+    # 3. Спроба оновити токен за допомогою фейкового рефреш-токена
+    res_bad_refresh = client.post("/refresh", json={"refresh_token": "fake_and_invalid_token_string"})
+    assert res_bad_refresh.status_code == 401
+
+
+def test_negative_books_flows(client):
+    """Тестуємо обробку помилок при роботі з книгами"""
+    
+    # 1. Пошук книги з невалідним форматом ID (MongoDB вимагає 24 символи)
+    res_bad_format = client.get("/books/12345", headers=AUTH_HEADERS)
+    assert res_bad_format.status_code == 400
+    assert "Invalid book ID format" in res_bad_format.json()["detail"]
+
+    # 2. Пошук книги, якої не існує (валідна довжина, але фейковий ID)
+    fake_mongo_id = "507f1f77bcf86cd799439011"
+    res_not_found = client.get(f"/books/{fake_mongo_id}", headers=AUTH_HEADERS)
+    assert res_not_found.status_code == 404
+
+    # 3. Спроба видалити книгу, якої не існує
+    res_del_not_found = client.delete(f"/books/{fake_mongo_id}", headers=AUTH_HEADERS)
+    assert res_del_not_found.status_code == 404

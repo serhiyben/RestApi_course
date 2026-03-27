@@ -1,6 +1,6 @@
 from app.repository import book_repo
 
-# Ми прибрали імпорт Session та UUID, бо в Монго вони не потрібні в такому вигляді
+
 
 async def get_all_books(collection, limit: int, offset: int):
     """Сервіс для отримання списку книг з пагінацією Limit-Offset"""
