@@ -46,5 +46,17 @@ services:
       - ./openapi.yaml:/tmp/openapi.yaml
     command: mock -m false  -h 0.0.0.0 /tmp/openapi.yaml
 
+  locust:
+    build:
+      context: .
+      dockerfile: Dockerfile.locust
+    container_name: library_locust
+    ports:
+      - "8089:8089"
+    environment:
+      - LOCUST_HOST=http://app:8000
+    depends_on:
+      - app
+
 volumes:
   mongo_data:

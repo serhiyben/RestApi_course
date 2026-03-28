@@ -1,0 +1,15 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+
+COPY locustfile.py .
+
+# Запускаємо веб-інтерфейс Locust
+# -f вказує на файл тесту
+# --master дозволяє потім масштабувати тест на кілька контейнерів 
+CMD ["locust", "-f", "locustfile.py"]

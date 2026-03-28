@@ -22,7 +22,7 @@ async def get_public_books(
 ):
     """Публічний ендпоінт для всіх (перевірка анонімного ліміту з пагінацією)"""
     # Передаємо user_id=None, бо юзер не авторизований
-    await rate_limit(request, user_id=None)
+    #await rate_limit(request, user_id=None)
     
     books_col = get_books_collection()
     cursor = books_col.find().skip(offset).limit(limit)
