@@ -42,7 +42,7 @@ async def get_all_books(
     current_user: str = Depends(get_current_user)
 ):
     """Захищений ендпоінт (перевірка авторизованого ліміту)"""
-    await rate_limit(request, user_id=current_user)
+    #await rate_limit(request, user_id=current_user)
     
     books_col = get_books_collection()
     cursor = books_col.find().skip(offset).limit(limit)
